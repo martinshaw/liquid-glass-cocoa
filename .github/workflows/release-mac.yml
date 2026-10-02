@@ -1,0 +1,140 @@
+name: Release Mac App
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag to publish (e.g. v1.0.0). Empty = use MARKETING_VERSION from the Xcode project."
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build native Mac app
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -showsdks
+
+      - name: Resolve version
+        id: version
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            TAG="${{ inputs.version }}"
+          else
+            MARKETING=$(grep -m1 'MARKETING_VERSION' LiquidGlassCocoa.xcodeproj/project.pbxproj | sed -E 's/.*=[[:space:]]*([^;]+);/\1/' | tr -d ' "')
+            TAG="v${MARKETING}"
+          fi
+          TAG="${TAG#v}"
+          TAG="v${TAG}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "Using tag $TAG"
+
+      - name: Build native macOS (Release)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project LiquidGlassCocoa.xcodeproj \
+            -scheme LiquidGlassCocoa \
+            -destination 'generic/platform=macOS' \
+            -configuration Release \
+            -derivedDataPath DerivedData \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            DEVELOPMENT_TEAM="" \
+            ONLY_ACTIVE_ARCH=NO \
+            build
+
+      - name: Package .app
+        id: package
+        run: |
+          set -euo pipefail
+          APP=$(find DerivedData/Build/Products -path '*Release/*.app' -type d | head -1)
+          if [[ -z "$APP" ]]; then
+            echo "Built .app not found under DerivedData/Build/Products"
+            find DerivedData/Build/Products -maxdepth 5 -print || true
+            exit 1
+          fi
+          echo "Found app at $APP"
+          VERSION="${{ steps.version.outputs.version }}"
+          STAGE="LiquidGlassCocoa-${VERSION}-mac"
+          mkdir -p dist
+          ditto "$APP" "dist/${STAGE}/LiquidGlassCocoa.app"
+          codesign --force --deep --sign - "dist/${STAGE}/LiquidGlassCocoa.app" || true
+          ditto -c -k --sequesterRsrc --keepParent "dist/${STAGE}/LiquidGlassCocoa.app" "dist/${STAGE}.zip"
+          echo "zip=dist/${STAGE}.zip" >> "$GITHUB_OUTPUT"
+          echo "artifact=${STAGE}.zip" >> "$GITHUB_OUTPUT"
+          ls -lh "dist/${STAGE}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.artifact }}
+          path: ${{ steps.package.outputs.zip }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          ZIP="${{ steps.package.outputs.zip }}"
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git tag -a "$TAG" -m "Release $TAG"
+              git push origin "$TAG"
+            fi
+          fi
+
+          NOTES=$(cat <<EOF
+          ## Liquid Glass Cocoa ${VERSION}
+
+          Native AppKit build of Liquid Glass Cocoa.
+
+          > **Note:** This AppKit port is experimental and buggy. Prefer [liquid-glass-catalyst](https://github.com/martinshaw/liquid-glass-catalyst) to play with Liquid Glass.
+
+          ### Install
+          1. Download \`LiquidGlassCocoa-${VERSION}-mac.zip\`
+          2. Unzip, then right-click **LiquidGlassCocoa.app** → **Open**
+          3. Approve Gatekeeper if prompted (ad-hoc signed CI build)
+
+          ### Notes
+          - Built for native macOS (not Catalyst) against the latest stable Xcode on GitHub Actions
+          - Liquid Glass features need macOS 26+
+          EOF
+          )
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" \
+              --title "Liquid Glass Cocoa ${VERSION}" \
+              --notes "$NOTES"
+          fi
