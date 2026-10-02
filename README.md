@@ -1,14 +1,18 @@
 # Liquid Glass Cocoa
 
 > **This project is buggy and unfinished.**  
-> If you want to play with Apple Liquid Glass on Mac, use the stable Mac Catalyst playground instead:  
+> If you want to play with Apple Liquid Glass on Mac, use the Mac Catalyst playground instead:  
 > **[martinshaw/liquid-glass-catalyst](https://github.com/martinshaw/liquid-glass-catalyst)**
 
 ---
 
 Native **AppKit** experiment for Liquid Glass (`NSGlassEffectView`, `NSGlassEffectContainerView`, `NSBezelStyleGlass`).
 
-This repo is an early Cocoa port of the Catalyst playground. Layout, containment, and some demos are still rough (sidebar collapse, glass content sizing, drag quirks, etc.). Prefer **liquid-glass-catalyst** for a reliable demo.
+This repo is an early Cocoa port of the Catalyst playground. Layout, containment, and some demos are still rough. Prefer **liquid-glass-catalyst** for a more reliable demo.
+
+## About these projects
+
+Both **liquid-glass-cocoa** and **[liquid-glass-catalyst](https://github.com/martinshaw/liquid-glass-catalyst)** were built quickly with [Cursor](https://cursor.com) as lightweight sandboxes for trying out macOS design APIs — especially Liquid Glass — rather than as production apps.
 
 ## Prefer Catalyst
 
