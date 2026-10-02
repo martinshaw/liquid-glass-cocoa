@@ -102,9 +102,11 @@ enum GlassFactory {
     }
 
     static func setInteractive(_ interactive: Bool, on view: NSGlassEffectView) {
-        if #available(macOS 27.0, *) {
-            view.effectIsInteractive = interactive
-        }
+        // `effectIsInteractive` exists only in the macOS 27 SDK. CI may build
+        // against macOS 26, so avoid a hard symbol reference and set it at runtime.
+        let setter = NSSelectorFromString("setEffectIsInteractive:")
+        guard view.responds(to: setter) else { return }
+        view.setValue(interactive, forKey: "effectIsInteractive")
     }
 }
 
